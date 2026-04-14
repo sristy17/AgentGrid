@@ -1,5 +1,6 @@
 import requests
 import json
+import re
 
 
 class LLMService:
@@ -8,23 +9,20 @@ class LLMService:
         self.url = "http://localhost:11434/api/generate"
         self.model = "llama3"
 
-    def generate_text(self, prompt: str):
-        response = requests.post(
-            self.url,
-            json={
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False
-            }
-        )
-
-        data = response.json()
-        return data["response"]
+    def extract_json(self, text: str):
+        try:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
+        return None
 
     def generate_json(self, prompt: str, retries=2):
         try:
             full_prompt = f"""
-You must return ONLY valid JSON. No explanation.
+You MUST return ONLY valid JSON.
+No explanation. No text outside JSON.
 
 {prompt}
 """
@@ -41,7 +39,12 @@ You must return ONLY valid JSON. No explanation.
             data = response.json()
             output = data["response"]
 
-            return json.loads(output)
+            parsed = self.extract_json(output)
+
+            if parsed:
+                return parsed
+
+            raise Exception("Invalid JSON format")
 
         except Exception as e:
             if retries > 0:
