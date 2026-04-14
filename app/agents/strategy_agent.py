@@ -11,17 +11,34 @@ class StrategyAgent(Agent):
         prompt = f"""
 You are a business strategist.
 
-Given these insights:
+Given insights:
 {insights}
 
-Suggest actionable strategies.
+Rules:
+- Strategies must be SPECIFIC and ACTIONABLE
+- Avoid vague terms like "improve" or "adjust"
+- Each strategy must include:
+  - strategy (short title)
+  - description (clear explanation)
+  - impact (expected outcome)
+
+Bad example:
+"price adjustment" 
+
+Good example:
+"Increase prices by 5% for high-demand products to improve margins" 
 
 Return ONLY JSON:
 {{
-  "pricing": [],
-  "growth": [],
-  "cost_cutting": []
+  "pricing": [
+    {{"strategy": "", "description": "", "impact": ""}}
+  ],
+  "growth": [
+    {{"strategy": "", "description": "", "impact": ""}}
+  ],
+  "cost_cutting": [
+    {{"strategy": "", "description": "", "impact": ""}}
+  ]
 }}
 """
-
         return self.llm.generate_json(prompt)

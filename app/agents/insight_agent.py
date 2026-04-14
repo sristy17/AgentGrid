@@ -8,24 +8,24 @@ class InsightAgent(Agent):
         self.llm = LLMService()
 
     def run(self, analytics):
-       prompt = f"""
-You are a business analyst.
+        prompt = f"""
+You are a strict business analyst.
 
 Data:
 {analytics}
 
-Facts (DO NOT CHANGE):
-- revenue = {analytics["revenue"]}
-- cost = {analytics["cost"]}
-- profit = {analytics["profit"]}
-- profit = revenue - cost (already validated)
+Rules:
+- ONLY use provided data
+- NO assumptions
+- NO empty fields
+- Each problem must include a clear description
+- Each reason must explain WHY (not repeat numbers)
 
-Do NOT question calculations.
+Bad example:
+"profit: 150" 
 
-Focus ONLY on:
-- inefficiencies
-- risks
-- improvement areas
+Good example:
+"Profit margin is low because costs consume a large portion of revenue" 
 
 Return ONLY JSON:
 {{
@@ -37,4 +37,4 @@ Return ONLY JSON:
   ]
 }}
 """
-       return self.llm.generate_json(prompt)
+        return self.llm.generate_json(prompt)
