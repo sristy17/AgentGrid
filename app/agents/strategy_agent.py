@@ -1,44 +1,33 @@
 from app.core.agent_interface import Agent
 from app.services.llm_service import LLMService
 
-
 class StrategyAgent(Agent):
-
     def __init__(self):
         self.llm = LLMService()
 
-    def run(self, insights):
-        prompt = f"""
-You are a business strategist.
+    def run(self, insights, analytics):
+        # Scale awareness prevents suggesting millions for small businesses
+        rev = analytics.get('revenue', 0)
+        prof = analytics.get('profit', 0)
 
-Given insights:
+        prompt = f"""
+You are a Business Strategy Consultant.
+Company Scale: Revenue ${rev}, Profit ${prof}.
+
+INSIGHTS TO ADDRESS:
 {insights}
 
-Rules:
-- Strategies must be SPECIFIC and ACTIONABLE
-- Avoid vague terms like "improve" or "adjust"
-- Each strategy must include:
-  - strategy (short title)
-  - description (clear explanation)
-  - impact (expected outcome)
-
-Bad example:
-"price adjustment" 
-
-Good example:
-"Increase prices by 5% for high-demand products to improve margins" 
+STRICT RULES:
+1. Impact estimates MUST be proportional to ${rev}. 
+2. DO NOT suggest savings or growth in the millions if revenue is in thousands.
+3. Use percentages for impact (e.g., "Expected 5% revenue increase").
+4. If profit is low, prioritize immediate cost-cutting.
 
 Return ONLY JSON:
 {{
-  "pricing": [
-    {{"strategy": "", "description": "", "impact": ""}}
-  ],
-  "growth": [
-    {{"strategy": "", "description": "", "impact": ""}}
-  ],
-  "cost_cutting": [
-    {{"strategy": "", "description": "", "impact": ""}}
-  ]
+  "pricing": [{{"strategy": "", "description": "", "impact": ""}}],
+  "growth": [{{"strategy": "", "description": "", "impact": ""}}],
+  "cost_cutting": [{{"strategy": "", "description": "", "impact": ""}}]
 }}
 """
         return self.llm.generate_json(prompt)

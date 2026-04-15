@@ -1,0 +1,560 @@
+
+--- FILE: ./app/agents/analytics_agent.py ---
+from app.core.agent_interface import Agent
+
+class AnalyticsAgent(Agent):
+
+    def run(self, data):
+        revenue = sum(d["revenue"] for d in data)
+        cost = sum(d["cost"] for d in data)
+
+        return {
+            "revenue": revenue,
+            "cost": cost,
+            "profit": revenue - cost
+        }
+--- FILE: ./app/agents/orchestrator.py ---
+from app.agents.data_agent import DataAgent
+from app.agents.analytics_agent import AnalyticsAgent
+from app.agents.insight_agent import InsightAgent
+from app.agents.strategy_agent import StrategyAgent
+from app.models.response_schema import AnalyzeResponse
+from app.core.logger import log
+from app.db.database import SessionLocal
+from app.db.models import AnalysisRun
+
+class Orchestrator:
+
+    def __init__(self):
+        self.data_agent = DataAgent()
+        self.analytics_agent = AnalyticsAgent()
+        self.insight_agent = InsightAgent()
+        self.strategy_agent = StrategyAgent()
+
+    def _calculate_trend(self, current, previous):
+        """Helper to calculate changes and percentages safely in Python."""
+        def get_pct(curr, prev):
+            if prev == 0:
+                return 0
+            return round(((curr - prev) / prev) * 100, 2)
+
+        return {
+            "revenue_change": current["revenue"] - previous["revenue"],
+            "revenue_pct": get_pct(current["revenue"], previous["revenue"]),
+            "cost_change": current["cost"] - previous["cost"],
+            "cost_pct": get_pct(current["cost"], previous["cost"]),
+            "profit_change": current["profit"] - previous["profit"],
+            "profit_pct": get_pct(current["profit"], previous["profit"])
+        }
+
+    def run(self, input_data):
+        try:
+            # 1. Data Ingestion
+            log("Running Data Agent")
+            data = self.data_agent.run(input_data)
+
+            # 2. Analytics Calculation
+            log("Running Analytics Agent", data)
+            analytics = self.analytics_agent.run(data)
+
+            # Early Exit: No Activity
+            if analytics["revenue"] == 0 and analytics["cost"] == 0:
+                return self._format_empty_response(data, analytics)
+
+            # 3. Database & Trend Logic
+            trend = None
+            with SessionLocal() as db:
+                last_run = db.query(AnalysisRun)\
+                    .order_by(AnalysisRun.id.desc())\
+                    .first()
+                
+                if last_run and last_run.analytics:
+                    trend = self._calculate_trend(analytics, last_run.analytics)
+
+            # 4. Insights Generation
+            log("Running Insight Agent", analytics)
+            insights = self.insight_agent.run(analytics, trend)
+
+            # Early Exit: Negative or Zero Profit (Skip Strategy)
+            if analytics["revenue"] <= 0 or analytics["profit"] <= 0:
+                response = {
+                    "data": data,
+                    "analytics": analytics,
+                    "insights": insights,
+                    "strategy": {"pricing": [], "growth": [], "cost_cutting": []}
+                }
+                return AnalyzeResponse(**response).model_dump()
+
+            # 5. Strategy Generation
+            log("Running Strategy Agent", insights)
+            # Ensure your StrategyAgent.run accepts both insights and analytics
+            strategy = self.strategy_agent.run(insights, analytics)
+
+            # 6. Final Construction
+            response = {
+                "data": data,
+                "analytics": analytics,
+                "insights": insights,
+                "strategy": strategy
+            }
+
+            return AnalyzeResponse(**response).model_dump()
+
+        except Exception as e:
+            log("ERROR", str(e))
+            raise Exception(f"Pipeline failed: {str(e)}")
+
+    def _format_empty_response(self, data, analytics):
+        """Standardizes the response for cases with no transaction data."""
+        response = {
+            "data": data,
+            "analytics": analytics,
+            "insights": {
+                "problems": [{"type": "No Activity", "description": "No revenue or cost data available"}],
+                "reasons": [{"problem": "No Activity", "reason": "Business has not recorded any transactions"}]
+            },
+            "strategy": {"pricing": [], "growth": [], "cost_cutting": []}
+        }
+        return AnalyzeResponse(**response).model_dump()
+--- FILE: ./app/agents/data_agent.py ---
+from app.core.agent_interface import Agent
+
+
+class DataAgent(Agent):
+
+    def run(self, input_data):
+        if input_data and "data" in input_data:
+            return input_data["data"]
+
+        return [
+            {"revenue": 100, "cost": 60},
+            {"revenue": 200, "cost": 120},
+            {"revenue": 150, "cost": 90}
+        ]
+--- FILE: ./app/agents/insight_agent.py ---
+from app.core.agent_interface import Agent
+from app.services.llm_service import LLMService
+
+class InsightAgent(Agent):
+    def __init__(self):
+        self.llm = LLMService()
+
+    def run(self, analytics, trend=None):
+        trend_context = "No previous trend data available."
+
+        if trend:
+            rev_change = str(trend.get('revenue_change', 0))
+            rev_pct = str(trend.get('revenue_pct', 0))
+            cost_change = str(trend.get('cost_change', 0))
+            cost_pct = str(trend.get('cost_pct', 0))
+            prof_change = str(trend.get('profit_change', 0))
+            prof_pct = str(trend.get('profit_pct', 0))
+
+            trend_context = (
+                "Trend Data:\n"
+                f"- Revenue Change: {rev_change} ({rev_pct}%)\n"
+                f"- Cost Change: {cost_change} ({cost_pct}%)\n"
+                f"- Profit Change: {prof_change} ({prof_pct}%)"
+            )
+
+        # We use raw values for analytics to ensure no formatting interference
+        curr_rev = analytics.get('revenue', 0)
+        curr_cost = analytics.get('cost', 0)
+        curr_prof = analytics.get('profit', 0)
+
+        prompt = f"""
+You are a strict business analyst. 
+
+Current Data:
+Revenue: {curr_rev}
+Cost: {curr_cost}
+Profit: {curr_prof}
+
+{trend_context}
+
+Tasks:
+1. Identify business problems based on the data provided.
+2. Explain reasons clearly using ONLY the numbers provided.
+
+Rules:
+- Use ONLY provided data.
+- DO NOT invent dates, timeframes, or "expected" future numbers.
+- NO fake numbers or outside percentages.
+- Return ONLY valid JSON.
+
+Return ONLY JSON:
+{{
+  "problems": [
+    {{"type": "string", "description": "string"}}
+  ],
+  "reasons": [
+    {{"problem": "string", "reason": "string"}}
+  ]
+}}
+"""
+        return self.llm.generate_json(prompt)
+--- FILE: ./app/agents/strategy_agent.py ---
+from app.core.agent_interface import Agent
+from app.services.llm_service import LLMService
+
+
+class StrategyAgent(Agent):
+    def run(self, insights, analytics):
+        prompt = f"""
+        You are a Business Strategy Consultant for a company with:
+        - Total Revenue: ${analytics['revenue']}
+        - Total Profit: ${analytics['profit']}
+
+        INSIGHTS TO ADDRESS:
+        {insights}
+
+        STRICT RULES:
+        1. All impact estimates must be PROPORTIONAL to the current revenue (${analytics['revenue']}).
+        2. DO NOT suggest millions of dollars in savings if the revenue is only in the thousands.
+        3. Use realistic percentages (e.g., "5% increase in revenue") rather than fixed large dollar amounts.
+        4. If the profit is low, focus on immediate survival and cost-cutting.
+
+        Return ONLY JSON in this format:
+        {{
+          "pricing": [{"strategy": "", "description": "", "impact": ""}],
+          "growth": [{"strategy": "", "description": "", "impact": ""}],
+          "cost_cutting": [{"strategy": "", "description": "", "impact": ""}]
+        }}
+        """
+  
+        return self.llm.generate_json(prompt)
+--- FILE: ./app/config/settings.py ---
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Settings:
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+settings = Settings()
+--- FILE: ./app/db/__init__.py ---
+
+--- FILE: ./app/db/init_db.py ---
+from app.db.database import engine, Base
+from app.db.models import AnalysisRun
+
+print("Creating tables...")
+Base.metadata.create_all(bind=engine)
+print("Done!")
+--- FILE: ./app/db/database.py ---
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from app.config.settings import settings
+
+engine = create_engine(settings.DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+--- FILE: ./app/db/models.py ---
+from sqlalchemy import Column, Integer, DateTime
+from sqlalchemy.dialects.postgresql import JSON
+from datetime import datetime
+from app.db.database import Base
+
+
+class AnalysisRun(Base):
+    __tablename__ = "analysis_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    input_data = Column(JSON)
+    analytics = Column(JSON)
+    insights = Column(JSON)
+    strategy = Column(JSON)
+--- FILE: ./app/test_strategy.py ---
+from app.agents.data_agent import DataAgent
+from app.agents.analytics_agent import AnalyticsAgent
+from app.agents.insight_agent import InsightAgent
+from app.agents.strategy_agent import StrategyAgent
+
+data_agent = DataAgent()
+analytics_agent = AnalyticsAgent()
+insight_agent = InsightAgent()
+strategy_agent = StrategyAgent()
+
+data = data_agent.run({})
+analytics = analytics_agent.run(data)
+insights = insight_agent.run(analytics)
+strategy = strategy_agent.run(insights)
+
+print("INSIGHTS:", insights)
+print("STRATEGY:", strategy)
+
+--- FILE: ./app/services/llm_service.py ---
+import requests
+import json
+import re
+
+
+class LLMService:
+
+    def __init__(self):
+        self.url = "http://localhost:11434/api/generate"
+        self.model = "llama3"
+
+    def extract_json(self, text: str):
+        try:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
+        return None
+
+    def generate_json(self, prompt: str, retries=2):
+        try:
+            full_prompt = f"""
+You MUST return ONLY valid JSON.
+No explanation. No text outside JSON.
+
+{prompt}
+"""
+
+            response = requests.post(
+                self.url,
+                json={
+                    "model": self.model,
+                    "prompt": full_prompt,
+                    "stream": False
+                }
+            )
+
+            data = response.json()
+            output = data["response"]
+
+            parsed = self.extract_json(output)
+
+            if parsed:
+                return parsed
+
+            raise Exception("Invalid JSON format")
+
+        except Exception as e:
+            if retries > 0:
+                return self.generate_json(prompt, retries - 1)
+
+            raise Exception(f"JSON parsing failed: {e}")
+--- FILE: ./app/test_llm.py ---
+from app.services.llm_service import LLMService
+
+llm = LLMService()
+
+result = llm.generate_json("""
+Return:
+{
+  "message": "hello"
+}
+""")
+
+print(result)
+--- FILE: ./app/test_agent.py ---
+from app.agents.data_agent import DataAgent
+from app.agents.analytics_agent import AnalyticsAgent
+
+data_agent = DataAgent()
+analytics_agent = AnalyticsAgent()
+
+data = data_agent.run({})
+analytics = analytics_agent.run(data)
+
+print("DATA:", data)
+print("ANALYTICS:", analytics)
+--- FILE: ./app/core/logger.py ---
+def log(step: str, data=None):
+    print(f"[LOG] {step}")
+    if data:
+        print(data)
+--- FILE: ./app/core/agent_interface.py ---
+from abc import ABC, abstractmethod
+
+class Agent(ABC):
+
+    @abstractmethod
+    def run(self, input_data):
+        pass
+--- FILE: ./app/test_orchestrator.py ---
+from app.agents.orchestrator import Orchestrator
+
+orchestrator = Orchestrator()
+
+result = orchestrator.run({})
+
+print(result)
+--- FILE: ./app/main.py ---
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from app.agents.orchestrator import Orchestrator
+from app.models.schemas import AnalyzeRequest
+from app.utils.parser import parse_csv
+
+from app.db.database import SessionLocal
+from app.db.models import AnalysisRun
+
+
+app = FastAPI(title="AgentGrid AI API")
+
+orchestrator = Orchestrator()
+
+
+@app.get("/")
+def home():
+    return {"message": "AgentGrid AI Running"}
+
+
+# JSON ANALYSIS
+@app.post("/analyze")
+def analyze(request: AnalyzeRequest):
+    try:
+        input_data = request.model_dump()
+
+        result = orchestrator.run(input_data)
+        # SAVE TO DB
+        db = SessionLocal()
+        db_run = AnalysisRun(
+            input_data=input_data,
+            analytics=result["analytics"],
+            insights=result["insights"],
+            strategy=result["strategy"]
+        )
+        db.add(db_run)
+        db.commit()
+        db.close()
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# CSV ANALYSIS
+@app.post("/analyze-csv")
+def analyze_csv(file: UploadFile = File(...)):
+    try:
+        data = parse_csv(file.file)
+        input_data = {"data": data}
+
+        result = orchestrator.run(input_data)
+
+        # SAVE TO DB
+        db = SessionLocal()
+        db_run = AnalysisRun(
+            input_data=input_data,
+            analytics=result["analytics"],
+            insights=result["insights"],
+            strategy=result["strategy"]
+        )
+        db.add(db_run)
+        db.commit()
+        db.close()
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# HISTORY API
+@app.get("/history")
+def get_history(limit: int = 5):
+    db = SessionLocal()
+
+    runs = db.query(AnalysisRun)\
+        .order_by(AnalysisRun.id.desc())\
+        .limit(limit)\
+        .all()
+
+    result = []
+    for run in runs:
+        result.append({
+            "id": run.id,
+            "timestamp": run.timestamp,
+            "analytics": run.analytics,
+            "insights": run.insights,
+            "strategy": run.strategy
+        })
+
+    db.close()
+    return result
+--- FILE: ./app/utils/parser.py ---
+import pandas as pd
+
+
+def parse_csv(file) -> list:
+    df = pd.read_csv(file)
+
+    # Ensure required columns exist
+    if "revenue" not in df.columns or "cost" not in df.columns:
+        raise ValueError("CSV must contain 'revenue' and 'cost' columns")
+
+    # Convert to list of dicts
+    data = df[["revenue", "cost"]].to_dict(orient="records")
+
+    return data
+--- FILE: ./app/models/response_schema.py ---
+from pydantic import BaseModel
+from typing import List, Optional
+
+
+class Problem(BaseModel):
+    type: str
+    description: str
+
+
+class Reason(BaseModel):
+    problem: str
+    reason: str
+
+
+class StrategyItem(BaseModel):
+    strategy: str
+    description: Optional[str] = None
+    impact: Optional[str] = None
+
+
+class Strategy(BaseModel):
+    pricing: List[StrategyItem]
+    growth: List[StrategyItem]
+    cost_cutting: List[StrategyItem]
+
+
+class AnalyzeResponse(BaseModel):
+    data: list
+    analytics: dict
+    insights: dict
+    strategy: Strategy
+--- FILE: ./app/models/schemas.py ---
+from pydantic import BaseModel
+from typing import List
+
+
+class DataPoint(BaseModel):
+    revenue: float
+    cost: float
+
+
+class AnalyzeRequest(BaseModel):
+    data: List[DataPoint]
+--- FILE: ./app/test_insight.py ---
+from app.agents.data_agent import DataAgent
+from app.agents.analytics_agent import AnalyticsAgent
+from app.agents.insight_agent import InsightAgent
+
+data_agent = DataAgent()
+analytics_agent = AnalyticsAgent()
+insight_agent = InsightAgent()
+
+data = data_agent.run({})
+analytics = analytics_agent.run(data)
+insights = insight_agent.run(analytics)
+
+print("ANALYTICS:", analytics)
+print("INSIGHTS:", insights)
