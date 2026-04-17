@@ -59,7 +59,6 @@ class Orchestrator:
             log("Running Insight Agent", analytics)
             insights = self.insight_agent.run(analytics, trend)
 
-            # Early Exit: Negative or Zero Profit (Skip Strategy)
             if analytics["revenue"] <= 0 or analytics["profit"] <= 0:
                 response = {
                     "data": data,
@@ -71,8 +70,7 @@ class Orchestrator:
 
             # 5. Strategy Generation
             log("Running Strategy Agent", insights)
-            # Ensure your StrategyAgent.run accepts both insights and analytics
-            strategy = self.strategy_agent.run(insights, analytics)
+            strategy = self.strategy_agent.run(insights, analytics) 
 
             # 6. Final Construction
             response = {

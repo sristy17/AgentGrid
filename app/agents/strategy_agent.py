@@ -6,28 +6,32 @@ class StrategyAgent(Agent):
         self.llm = LLMService()
 
     def run(self, insights, analytics):
-        # Scale awareness prevents suggesting millions for small businesses
         rev = analytics.get('revenue', 0)
         prof = analytics.get('profit', 0)
+        cost = analytics.get('cost', 0)
 
         prompt = f"""
-You are a Business Strategy Consultant.
-Company Scale: Revenue ${rev}, Profit ${prof}.
+You are a Senior Business Strategy Consultant.
+Target Company Metrics: 
+- Total Revenue: ${rev}
+- Total Cost: ${cost}
+- Total Profit: ${prof}
 
 INSIGHTS TO ADDRESS:
 {insights}
 
-STRICT RULES:
-1. Impact estimates MUST be proportional to ${rev}. 
-2. DO NOT suggest savings or growth in the millions if revenue is in thousands.
-3. Use percentages for impact (e.g., "Expected 5% revenue increase").
-4. If profit is low, prioritize immediate cost-cutting.
+STRICT OPERATIONAL RULES:
+1. SCALE ADAPTATION: All impact estimates must be proportional to the current revenue of ${rev}[cite: 22].
+2. NO HALLUCINATIONS: Do not suggest million-dollar growth for a company making thousands[cite: 23].
+3. MICRO-BUSINESS SAFETY: If Total Cost is under $2,000, DO NOT suggest layoffs or headcount reduction. Focus on vendor renegotiation or subscription audits instead.
+4. IMPACT FORMATTING: The "impact" field must be a string (e.g., "+$15.00" or "5% increase").
+5. SURVIVAL MODE: If profit is negative, prioritize immediate cost-cutting over long-term growth.
 
-Return ONLY JSON:
+Return ONLY JSON in this format:
 {{
-  "pricing": [{{"strategy": "", "description": "", "impact": ""}}],
-  "growth": [{{"strategy": "", "description": "", "impact": ""}}],
-  "cost_cutting": [{{"strategy": "", "description": "", "impact": ""}}]
+  "pricing": [{{"strategy": "string", "description": "string", "impact": "string"}}],
+  "growth": [{{"strategy": "string", "description": "string", "impact": "string"}}],
+  "cost_cutting": [{{"strategy": "string", "description": "string", "impact": "string"}}]
 }}
 """
         return self.llm.generate_json(prompt)
