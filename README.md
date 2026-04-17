@@ -10,9 +10,9 @@ It simulates a team of AI “employees” working together — from data process
 
 AgentGrid takes business data (JSON or CSV), processes it through a structured pipeline of agents, and returns:
 
-* Analytics (revenue, cost, profit)
-* Insights (problems + reasons)
-* Strategies (pricing, growth, cost-cutting)
+* **Analytics** (revenue, cost, profit)
+* **Insights** (problems + reasons, including trend-aware analysis)
+* **Strategies** (pricing, growth, cost-cutting)
 
 ---
 
@@ -20,24 +20,24 @@ AgentGrid takes business data (JSON or CSV), processes it through a structured p
 
 The system follows a multi-agent architecture:
 
-1. **Data Agent**
-   Ingests and normalizes input data.
+* **Data Agent**
+  Ingests and normalizes input data
 
-2. **Analytics Agent**
-   Computes key business metrics (revenue, cost, profit).
+* **Analytics Agent**
+  Computes key business metrics (revenue, cost, profit)
 
-3. **Insight Agent (LLM)**
-   Analyzes the data to identify problems and reasons.
+* **Insight Agent (LLM)**
+  Analyzes current data along with historical trends to identify problems and reasons
 
-4. **Strategy Agent (LLM)**
-   Suggests actionable business strategies.
+* **Strategy Agent (LLM)**
+  Generates actionable business strategies based on insights
 
-5. **Orchestrator**
-   Coordinates the full pipeline, adds guardrails, validation, and logging.
+* **Orchestrator**
+  Coordinates the pipeline, applies guardrails, validation, logging, and integrates historical context
 
 ---
 
-##  Key Features
+## Key Features
 
 * Multi-agent AI system
 * FastAPI backend
@@ -48,24 +48,29 @@ The system follows a multi-agent architecture:
 * Logging for pipeline tracking
 * Guardrails for edge cases (e.g., zero revenue)
 * Robust JSON parsing for LLM outputs
+* Historical data storage and retrieval using PostgreSQL
+* Trend-aware insights using previous analysis runs
+* Hybrid architecture (deterministic calculations + AI reasoning)
 
+---
 
-
-##  Tech Stack
+## Tech Stack
 
 * **Backend:** FastAPI
 * **Language:** Python
-* **LLM Runtime:** Ollama (local models like llama3 / phi)
+* **LLM Runtime:** Ollama (llama3 / phi)
 * **Data Processing:** Pandas
 * **Validation:** Pydantic
+* **Database:** PostgreSQL
+* **ORM:** SQLAlchemy
 
-
-
+---
 
 ## What This Project Demonstrates
 
 * Multi-agent system design
 * LLM integration in backend systems
 * Hybrid architecture (deterministic + AI reasoning)
+* Stateful AI systems using historical context
 * Real-world AI reliability techniques (guardrails, validation, parsing)
-
+* Separation of concerns (logic vs reasoning)
